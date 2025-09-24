@@ -1,0 +1,49 @@
+name: Juice Shop ZAP Scan
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  zap-scan:
+    runs-on: ubuntu-latest
+    container:
+      image: elenicyberella/zap-stable-cli
+    services:
+      juice:
+        image: bkimminich/juice-shop:latest
+        ports:
+          - 3000:3000
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Wait for Juice Shop
+        run: |
+          echo "Waiting for Juice Shop to start..."
+          for i in {1..60}; do
+            if curl -s http://localhost:3000 > /dev/null; then
+              echo "Juice Shop is up!"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run ZAP CLI scan
+        run: |
+          echo "Starting ZAP daemon..."
+          zap.sh -daemon -host 0.0.0.0 -port 8080 &
+          sleep 15
+          echo "Spidering Juice Shop..."
+          zap-cli --zap-url http://127.0.0.1 --port 8080 spider http://host.docker.internal:3000
+          echo "Running active scan..."
+          zap-cli --zap-url http://127.0.0.1 --port 8080 active-scan http://host.docker.internal:3000
+          echo "Generating HTML report..."
+          zap-cli --zap-url http://127.0.0.1 --port 8080 report -o zap_report.html -f html
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v3
+        with:
+          name: zap-report
+          path: zap_report.html
